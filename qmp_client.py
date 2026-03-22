@@ -12,6 +12,7 @@ import sys
 
 QMP_SOCK = "build/qmp.sock"
 SERIAL_LOG = "build/serial.log"
+CPU_HZ_ESTIMATE = 8_000_000
 
 def qmp_connect(path):
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -50,7 +51,10 @@ def check_firmware_health(log):
     # Check boot banner
     results["boot_ok"] = any("BOOT OK" in l for l in lines)
     results["identity"] = any("James Schiavo" in l for l in lines)
-    results["version"] = any("QMP Emulation Harness" in l for l in lines)
+    results["version"] = any(
+        ("QMP Emulation Harness" in l) or ("QMP + ML Inference Harness" in l)
+        for l in lines
+    )
 
     # Check heartbeat is incrementing
     heartbeats = [l for l in lines if l.startswith("HEARTBEAT")]
@@ -72,6 +76,62 @@ def check_firmware_health(log):
             results["heartbeat_sequential"] = False
     else:
         results["heartbeat_sequential"] = False
+
+    return results
+
+
+def check_ml_telemetry(log):
+    lines = log.strip().splitlines()
+    bench_lines = [l for l in lines if l.startswith("ML_BENCH ")]
+
+    results = {
+        "bench_count": len(bench_lines),
+        "samples": 0,
+        "correct": 0,
+        "accuracy_pct": 0.0,
+        "avg_ticks": 0,
+        "avg_latency_ms_est": 0.0,
+        "min_ticks": 0,
+        "max_ticks": 0,
+    }
+
+    if not bench_lines:
+        return results
+
+    ticks = []
+    samples_total = 0
+    correct_total = 0
+
+    for line in bench_lines:
+        parts = line.split()
+        fields = {}
+        for p in parts[1:]:
+            if "=" not in p:
+                continue
+            key, value = p.split("=", 1)
+            fields[key] = value
+
+        try:
+            samples = int(fields.get("samples", "0"))
+            correct = int(fields.get("correct", "0"))
+            avg_ticks = int(fields.get("avg_ticks", "0"))
+            samples_total += samples
+            correct_total += correct
+            ticks.append(avg_ticks)
+        except ValueError:
+            continue
+
+    if ticks:
+        results["avg_ticks"] = sum(ticks) / len(ticks)
+        results["min_ticks"] = min(ticks)
+        results["max_ticks"] = max(ticks)
+
+    results["samples"] = samples_total
+    results["correct"] = correct_total
+    if samples_total > 0:
+        results["accuracy_pct"] = (correct_total / samples_total) * 100.0
+    if results["avg_ticks"] > 0:
+        results["avg_latency_ms_est"] = (results["avg_ticks"] / CPU_HZ_ESTIMATE) * 1000.0
 
     return results
 
@@ -131,7 +191,7 @@ def run_qmp_tests(sock):
 
     return results
 
-def print_report(qmp_results, fw_results):
+def print_report(qmp_results, fw_results, ml_results):
     print("=" * 55)
     print("  ARM Cortex-M3 Emulation QMP Test Report")
     print("  James Schiavo | lm3s6965evb | QEMU")
@@ -157,6 +217,15 @@ def print_report(qmp_results, fw_results):
     print(f"  Heartbeat count        : {fw_results.get('heartbeat_count', 0)}")
     print(f"  Sequential heartbeats  : {'PASS' if fw_results.get('heartbeat_sequential') else 'FAIL'}")
 
+    print("\n[EDGE ML INFERENCE TELEMETRY]")
+    print(f"  Benchmark lines parsed : {ml_results.get('bench_count', 0)}")
+    print(f"  Samples validated      : {ml_results.get('samples', 0)}")
+    print(f"  Correct predictions    : {ml_results.get('correct', 0)}")
+    print(f"  Accuracy               : {ml_results.get('accuracy_pct', 0.0):.2f}%")
+    print(f"  Avg inference ticks    : {ml_results.get('avg_ticks', 0):.2f}")
+    print(f"  Avg latency (est)      : {ml_results.get('avg_latency_ms_est', 0.0):.2f} ms")
+    print(f"  Min/Max ticks          : {ml_results.get('min_ticks', 0)}/{ml_results.get('max_ticks', 0)}")
+
     # Overall result
     all_tests = [
         qmp_results.get("qmp_connected"),
@@ -164,8 +233,12 @@ def print_report(qmp_results, fw_results):
         qmp_results.get("vm_running"),
         qmp_results.get("is_arm"),
         fw_results.get("boot_ok"),
+        fw_results.get("version"),
         fw_results.get("firmware_running"),
         fw_results.get("heartbeat_sequential"),
+        ml_results.get("bench_count", 0) > 0,
+        ml_results.get("samples", 0) >= 100,
+        ml_results.get("accuracy_pct", 0.0) >= 95.0,
     ]
     passed = sum(1 for t in all_tests if t)
     total = len(all_tests)
@@ -190,5 +263,6 @@ if __name__ == "__main__":
 
     print("Validating firmware output...")
     fw_results = check_firmware_health(serial_log)
+    ml_results = check_ml_telemetry(serial_log)
 
-    print_report(qmp_results, fw_results)
+    print_report(qmp_results, fw_results, ml_results)

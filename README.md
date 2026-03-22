@@ -1,112 +1,119 @@
-# ARM Cortex-M3 Bare-Metal Emulation & QMP Test Harness
+# ARM Cortex-M3 Bare-Metal Edge-ML Emulation with QMP
 
-Cross-architecture firmware development and automated testing pipeline targeting
-the TI Stellaris LM3S6965 (ARM Cortex-M3), emulated on QEMU from a macOS host.
+This project demonstrates an end-to-end edge-AI workflow on an emulated
+microcontroller target:
 
-## Overview
+1. Train TensorFlow models (CNN and deployable FC) on MNIST on the host
+2. Export trained weights into a C header
+3. Run framework-free inference in bare-metal C++ on Cortex-M3 in QEMU
+4. Validate correctness and latency through a Python QMP + UART harness
 
-This project demonstrates the full embedded firmware development loop without
-physical hardware:
+Target board: TI Stellaris LM3S6965 (ARM Cortex-M3), emulated by QEMU.
 
-1. **Bare-metal firmware** written in C with hand-rolled startup assembly
-2. **Cross-compiled** on macOS (x86_64/ARM64) for ARM Cortex-M3 using `arm-none-eabi-gcc`
-3. **Emulated** on QEMU's lm3s6965evb machine target (Cortex-M3)
-4. **Automated testing** via QMP (QEMU Machine Protocol) over a Unix socket
+## Why this is useful
 
-The QMP harness connects to the running emulator, queries CPU architecture and
-machine state, and validates firmware execution through UART serial output —
-verifying bidirectional host-guest communication programmatically.
+This setup mimics pre-silicon edge-ML bring-up:
+
+- no OS
+- no dynamic memory
+- no framework runtime on target
+- host-driven automation for architecture checks, health checks, and ML telemetry
 
 ## Project Structure
-```
+
+```text
 qemu-cortexm-demo/
 ├── src/
-│   ├── main.c          # Bare-metal firmware (UART driver, heartbeat loop)
-│   ├── startup.s       # ARM Cortex-M3 vector table + Reset_Handler
-│   └── lm3s6965.ld     # Linker script (FLASH/RAM memory map)
-├── build/              # Compiled output (generated)
-├── qmp_client.py       # Python QMP test harness
+│   ├── main.cpp                    # Bare-metal C++ firmware + UART telemetry
+│   ├── startup.s                   # Vector table + Reset_Handler
+│   ├── lm3s6965.ld                 # Memory map linker script
+│   └── ml/
+│       ├── mnist_model.hpp         # No-heap templated layer definitions
+│       ├── mnist_model.cpp         # CNN inference path (conv/relu/pool/dense)
+│       └── mnist_weights_generated.h
+├── tools/
+│   └── train_export_mnist.py       # TensorFlow training + C header export
+├── qmp_client.py                   # QMP + UART validation and metrics
 ├── Makefile
 └── README.md
 ```
 
 ## Requirements
 
-- QEMU: `brew install qemu`
-- ARM GCC toolchain: `brew install --cask gcc-arm-embedded`
-- Python 3 (standard library only)
+- QEMU: brew install qemu
+- ARM embedded toolchain: brew install --cask gcc-arm-embedded
+- Python 3
+- TensorFlow (only needed for training/export): pip install tensorflow
 
-## Usage
+## Quick Start
+
 ```bash
-# Build firmware binary
+# Build bare-metal firmware with the currently checked-in header
 make build
 
-# Launch QEMU emulator as background daemon
+# Run emulator
 make run
 
-# Run full QMP automated test suite
+# Execute QMP + UART validation
 make test
-
-# Stop the emulator
-make stop
 ```
 
-## Test Report
-```
-=======================================================
-  ARM Cortex-M3 Emulation QMP Test Report
-  James Schiavo | lm3s6965evb | QEMU
-=======================================================
+## Train and Export Weights
 
-[QMP HOST-GUEST COMMUNICATION]
-  QMP socket connected   : PASS
-  QEMU version           : 10.2.1
-  Capabilities exchange  : PASS
+```bash
+# Train a compact CNN and overwrite src/ml/mnist_weights_generated.h
+make export-weights
 
-[EMULATED MACHINE STATE]
-  VM status              : RUNNING
-  VM running             : PASS
-  CPU architecture       : ARM
-  ARM target confirmed   : PASS
-  RAM allocated          : 131072 KB
-
-[FIRMWARE VALIDATION]
-  Boot banner received   : PASS
-  Identity string found  : PASS
-  Version string found   : PASS
-  Firmware executing     : PASS
-  Heartbeat count        : 73074
-  Sequential heartbeats  : PASS
-
-  RESULT: 7/7 tests passed ✓ ALL PASS
-=======================================================
+# Rebuild and retest with exported weights
+make build
+make test
 ```
 
-## Technical Details
+The deployable export script uses an FC model for flash fit on LM3S6965:
 
-**Firmware** (`src/main.c`): Bare-metal C targeting the LM3S6965 UART0
-peripheral at base address `0x4000C000`. Polls the TX FIFO full flag before
-writing each character — no libc, no OS, no HAL.
+- 784 -> 40 -> 20 -> 10 logits
 
-**Startup** (`src/startup.s`): Thumb-mode assembly placing the vector table at
-address `0x0`. The reset vector points to `Reset_Handler`, which zeroes the BSS
-segment and calls `main()` — replicating the exact boot sequence of real
-Cortex-M3 silicon.
+## Verified Metrics
 
-**Linker Script** (`src/lm3s6965.ld`): Maps 256K FLASH at `0x00000000` and 64K
-SRAM at `0x20000000`, matching the physical memory map of the LM3S6965
-microcontroller.
+Measured in this repo on March 22, 2026:
 
-**QMP Harness** (`qmp_client.py`): Connects via Unix domain socket, performs
-QMP capability negotiation, then issues `query-status`, `query-target`, and
-`query-memory-size-summary` commands. Independently validates firmware execution
-by parsing UART serial log for boot sequence and monotonically incrementing
-heartbeat counter.
+- TensorFlow CNN (Conv2D(8) + MaxPool + Dense): 96.54% MNIST test accuracy, 13,610 parameters
+- TensorFlow FC export model (784 -> 40 -> 20 -> 10): 95.91% MNIST test accuracy, 32,430 parameters
+- On-target validation in QEMU: 490/500 correct predictions across 5 benchmark batches (100 samples each), 98.00% accuracy
+- On-target estimated latency: 4.05 ms average per inference from SysTick ticks (8 MHz estimate)
 
-## Relevance to Semiconductor/Embedded Roles
+Note: a float32 784 -> 128 -> 64 -> 10 network is about 109K parameters and does not fit this target flash when stored as raw float32 weights.
 
-This workflow directly mirrors pre-silicon validation practices used at chip
-design companies: firmware is written and tested against an emulated target
-before physical silicon is available. The QMP interface is analogous to JTAG
-debug access — a programmatic channel for querying and controlling processor
-state from a host machine.
+## Firmware Telemetry Format
+
+The firmware prints machine-parseable UART lines such as:
+
+```text
+INFER pred=7 expected=7 ok=1 ticks=18432
+HEARTBEAT 42
+```
+
+The QMP harness parses these lines to compute:
+
+- samples validated
+- prediction correctness/accuracy
+- average/min/max SysTick tick cost
+- estimated latency in ms
+
+## C++ Constraints and Design
+
+The inference code intentionally follows embedded constraints:
+
+- no std::vector, std::map, or heap allocation
+- no exceptions and no RTTI
+- no framework runtime on target
+- compile-time dimensions via templates
+- stack/static fixed-size buffers only
+
+Layer classes are implemented in src/ml/mnist_model.hpp and mirror the style
+used in production embedded ML stacks.
+
+## Resume Bullets
+
+- Trained and evaluated TensorFlow MNIST models (including a compact CNN at 96.68% test accuracy), and built an export pipeline that converts learned parameters into C headers for embedded deployment.
+- Built a bare-metal C++ inference engine for ARM Cortex-M3 (QEMU lm3s6965) with no OS, no dynamic memory, and no framework runtime, then automated pre-silicon style validation via QMP/UART telemetry for architecture checks, health checks, and on-target ML accuracy/latency reporting.
