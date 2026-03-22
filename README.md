@@ -87,7 +87,7 @@ Measured in this repo on March 22, 2026:
 
 The repository includes a generated metrics snapshot artifact for quick visual verification:
 
-![Measured accuracy and latency snapshot](docs/assets/metrics_snapshot.svg)
+![Measured accuracy and latency snapshot](docs/assets/accuracy_snapshot.svg)
 
 Dedicated latency snapshot:
 
