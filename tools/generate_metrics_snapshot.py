@@ -11,8 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 CNN_METRICS = ROOT / "build" / "training_metrics_cnn.json"
 FC_METRICS = ROOT / "build" / "training_metrics_fc.json"
 SERIAL_LOG = ROOT / "build" / "serial.log"
+COMMITTED_METRICS = ROOT / "docs" / "assets" / "metrics_data.json"
 OUT_DIR = ROOT / "docs" / "assets"
 OUT_SVG = OUT_DIR / "metrics_snapshot.svg"
+OUT_LATENCY_SVG = OUT_DIR / "latency_snapshot.svg"
 
 CPU_HZ_ESTIMATE = 8_000_000
 
@@ -68,9 +70,10 @@ def svg_escape(s: str) -> str:
 
 
 def main() -> None:
-    cnn = load_json(CNN_METRICS)
-    fc = load_json(FC_METRICS)
-    bench = parse_bench(SERIAL_LOG.read_text() if SERIAL_LOG.exists() else "")
+    committed = load_json(COMMITTED_METRICS)
+    cnn = load_json(CNN_METRICS) or committed.get("cnn", {})
+    fc = load_json(FC_METRICS) or committed.get("fc", {})
+    bench = parse_bench(SERIAL_LOG.read_text() if SERIAL_LOG.exists() else "") or committed.get("bench", {})
 
     lines = [
         "QEMU Cortex-M Edge-ML Metrics Snapshot",
@@ -109,7 +112,38 @@ def main() -> None:
     )
 
     OUT_SVG.write_text(svg)
+
+    latency_lines = [
+        "QEMU Cortex-M Edge-ML Latency Snapshot",
+        "Measured on: 2026-03-22",
+        f"Avg inference latency (est): {bench.get('per_inf_ms', 0.0):.2f} ms",
+        f"Avg batch latency (est, 100 samples): {bench.get('batch_ms', 0.0):.2f} ms",
+        f"Avg ticks per inference: {bench.get('avg_ticks', 0.0):.2f}",
+        f"Validated samples: {bench.get('samples', 0)}",
+    ]
+
+    latency_nodes = []
+    for i, line in enumerate(latency_lines):
+        y = y0 + i * dy
+        weight = "700" if i == 0 else "400"
+        size = 24 if i == 0 else 20
+        latency_nodes.append(
+            f'<text x="32" y="{y}" font-family="Menlo, Consolas, monospace" font-size="{size}" font-weight="{weight}" fill="#111">{svg_escape(line)}</text>'
+        )
+
+    latency_svg = "\n".join(
+        [
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">',
+            '  <rect x="0" y="0" width="100%" height="100%" fill="#f5f7fb"/>',
+            '  <rect x="16" y="16" width="888" height="248" rx="10" fill="#ffffff" stroke="#d0d7de"/>',
+            *["  " + t for t in latency_nodes],
+            "</svg>",
+        ]
+    )
+
+    OUT_LATENCY_SVG.write_text(latency_svg)
     print(f"Wrote {OUT_SVG}")
+    print(f"Wrote {OUT_LATENCY_SVG}")
 
 
 if __name__ == "__main__":

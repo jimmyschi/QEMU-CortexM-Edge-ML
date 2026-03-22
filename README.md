@@ -89,11 +89,17 @@ The repository includes a generated metrics snapshot artifact for quick visual v
 
 ![Measured accuracy and latency snapshot](docs/assets/metrics_snapshot.svg)
 
+Dedicated latency snapshot:
+
+![Measured latency snapshot](docs/assets/latency_snapshot.svg)
+
 You can regenerate this artifact after rerunning training and QEMU tests with:
 
 ```bash
 python tools/generate_metrics_snapshot.py
 ```
+
+If local build artifacts are unavailable, the generator falls back to committed baseline metrics in docs/assets/metrics_data.json.
 
 Note: a float32 784 -> 128 -> 64 -> 10 network is about 109K parameters and does not fit this target flash when stored as raw float32 weights.
 

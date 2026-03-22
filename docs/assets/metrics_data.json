@@ -1,0 +1,18 @@
+{
+  "cnn": {
+    "test_accuracy": 0.9654,
+    "parameter_count": 13610
+  },
+  "fc": {
+    "test_accuracy": 0.9591,
+    "parameter_count": 32430
+  },
+  "bench": {
+    "samples": 500,
+    "correct": 490,
+    "accuracy_pct": 98.0,
+    "avg_ticks": 32958.6,
+    "per_inf_ms": 4.12,
+    "batch_ms": 411.98
+  }
+}
