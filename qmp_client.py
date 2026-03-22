@@ -91,6 +91,7 @@ def check_ml_telemetry(log):
         "accuracy_pct": 0.0,
         "avg_ticks": 0,
         "avg_latency_ms_est": 0.0,
+        "avg_batch_latency_ms_est": 0.0,
         "min_ticks": 0,
         "max_ticks": 0,
     }
@@ -132,6 +133,9 @@ def check_ml_telemetry(log):
         results["accuracy_pct"] = (correct_total / samples_total) * 100.0
     if results["avg_ticks"] > 0:
         results["avg_latency_ms_est"] = (results["avg_ticks"] / CPU_HZ_ESTIMATE) * 1000.0
+    if results["bench_count"] > 0:
+        samples_per_bench = samples_total / results["bench_count"]
+        results["avg_batch_latency_ms_est"] = results["avg_latency_ms_est"] * samples_per_bench
 
     return results
 
@@ -224,6 +228,7 @@ def print_report(qmp_results, fw_results, ml_results):
     print(f"  Accuracy               : {ml_results.get('accuracy_pct', 0.0):.2f}%")
     print(f"  Avg inference ticks    : {ml_results.get('avg_ticks', 0):.2f}")
     print(f"  Avg latency (est)      : {ml_results.get('avg_latency_ms_est', 0.0):.2f} ms")
+    print(f"  Avg batch latency (est): {ml_results.get('avg_batch_latency_ms_est', 0.0):.2f} ms")
     print(f"  Min/Max ticks          : {ml_results.get('min_ticks', 0)}/{ml_results.get('max_ticks', 0)}")
 
     # Overall result

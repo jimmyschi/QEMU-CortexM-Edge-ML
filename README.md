@@ -81,6 +81,19 @@ Measured in this repo on March 22, 2026:
 - TensorFlow FC export model (784 -> 40 -> 20 -> 10): 95.91% MNIST test accuracy, 32,430 parameters
 - On-target validation in QEMU: 490/500 correct predictions across 5 benchmark batches (100 samples each), 98.00% accuracy
 - On-target estimated latency: 4.05 ms average per inference from SysTick ticks (8 MHz estimate)
+- On-target estimated batch latency: about 405 ms per 100-sample benchmark batch
+
+## Metric Snapshot
+
+The repository includes a generated metrics snapshot artifact for quick visual verification:
+
+![Measured accuracy and latency snapshot](docs/assets/metrics_snapshot.svg)
+
+You can regenerate this artifact after rerunning training and QEMU tests with:
+
+```bash
+python tools/generate_metrics_snapshot.py
+```
 
 Note: a float32 784 -> 128 -> 64 -> 10 network is about 109K parameters and does not fit this target flash when stored as raw float32 weights.
 
@@ -112,8 +125,3 @@ The inference code intentionally follows embedded constraints:
 
 Layer classes are implemented in src/ml/mnist_model.hpp and mirror the style
 used in production embedded ML stacks.
-
-## Resume Bullets
-
-- Trained and evaluated TensorFlow MNIST models (including a compact CNN at 96.68% test accuracy), and built an export pipeline that converts learned parameters into C headers for embedded deployment.
-- Built a bare-metal C++ inference engine for ARM Cortex-M3 (QEMU lm3s6965) with no OS, no dynamic memory, and no framework runtime, then automated pre-silicon style validation via QMP/UART telemetry for architecture checks, health checks, and on-target ML accuracy/latency reporting.
