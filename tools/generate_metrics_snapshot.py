@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CNN_METRICS = ROOT / "build" / "training_metrics_cnn.json"
-FC_METRICS = ROOT / "build" / "training_metrics_fc.json"
+EMBEDDED_CNN_METRICS = ROOT / "build" / "training_metrics_cnn_embedded.json"
 SERIAL_LOG = ROOT / "build" / "serial.log"
 COMMITTED_METRICS = ROOT / "docs" / "assets" / "metrics_data.json"
 OUT_DIR = ROOT / "docs" / "assets"
@@ -72,14 +72,14 @@ def svg_escape(s: str) -> str:
 def main() -> None:
     committed = load_json(COMMITTED_METRICS)
     cnn = load_json(CNN_METRICS) or committed.get("cnn", {})
-    fc = load_json(FC_METRICS) or committed.get("fc", {})
+    embedded = load_json(EMBEDDED_CNN_METRICS) or committed.get("cnn", {})
     bench = parse_bench(SERIAL_LOG.read_text() if SERIAL_LOG.exists() else "") or committed.get("bench", {})
 
     lines = [
         "QEMU Cortex-M Edge-ML Metrics Snapshot",
-        "Measured on: 2026-03-22",
+        "Measured on: 2026-03-26",
         f"TensorFlow CNN accuracy: {cnn.get('test_accuracy', 0.0) * 100:.2f}%",
-        f"TensorFlow FC accuracy: {fc.get('test_accuracy', 0.0) * 100:.2f}%",
+        f"TensorFlow CNN export accuracy: {embedded.get('test_accuracy', 0.0) * 100:.2f}%",
         f"On-target accuracy: {bench.get('accuracy_pct', 0.0):.2f}% ({bench.get('correct', 0)}/{bench.get('samples', 0)})",
         f"Avg inference latency (est): {bench.get('per_inf_ms', 0.0):.2f} ms",
         f"Avg batch latency (est, 100 samples): {bench.get('batch_ms', 0.0):.2f} ms",
@@ -115,7 +115,7 @@ def main() -> None:
 
     latency_lines = [
         "QEMU Cortex-M Edge-ML Latency Snapshot",
-        "Measured on: 2026-03-22",
+        "Measured on: 2026-03-26",
         f"Avg inference latency (est): {bench.get('per_inf_ms', 0.0):.2f} ms",
         f"Avg batch latency (est, 100 samples): {bench.get('batch_ms', 0.0):.2f} ms",
         f"Avg ticks per inference: {bench.get('avg_ticks', 0.0):.2f}",

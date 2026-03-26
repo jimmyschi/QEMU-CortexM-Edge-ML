@@ -3,16 +3,14 @@
 
 namespace ml {
 
-MnistFcModel::MnistFcModel() : d1_(g_w1, g_b1), d2_(g_w2, g_b2), d3_(g_w3, g_b3) {}
+MnistCnnModel::MnistCnnModel() : conv_(g_conv_w, g_conv_b), fc_(g_fc_w, g_fc_b) {}
 
-int MnistFcModel::predict(const float *image) {
-  d1_.forward(image, h1_);
-  relu_inplace<1, kH1, 1, float>(h1_);
+int MnistCnnModel::predict(const float *image) {
+  conv_.forward(image, conv_out_);
+  relu_inplace<kConvOutH, kConvOutW, kConvOc, float>(conv_out_);
 
-  d2_.forward(h1_, h2_);
-  relu_inplace<1, kH2, 1, float>(h2_);
-
-  d3_.forward(h2_, out_);
+  pool_.forward_nhwc_flat(conv_out_, pool_out_);
+  fc_.forward(pool_out_, out_);
   return static_cast<int>(argmax<kOut, float>(out_));
 }
 

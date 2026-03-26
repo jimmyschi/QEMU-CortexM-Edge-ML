@@ -3,7 +3,7 @@
 This project demonstrates an end-to-end edge-AI workflow on an emulated
 microcontroller target:
 
-1. Train TensorFlow models (CNN and deployable FC) on MNIST on the host
+1. Train and export a TensorFlow CNN on MNIST on the host
 2. Export trained weights into a C header
 3. Run framework-free inference in bare-metal C++ on Cortex-M3 in QEMU
 4. Validate correctness and latency through a Python QMP + UART harness
@@ -69,19 +69,19 @@ make build
 make test
 ```
 
-The deployable export script uses an FC model for flash fit on LM3S6965:
+The deployable export script uses the same compact CNN architecture as host metrics:
 
-- 784 -> 40 -> 20 -> 10 logits
+- Input 28x28x1 -> Conv2D(8, 3x3, ReLU, valid) -> MaxPool2D(2x2) -> Flatten -> Dense(10 logits)
 
 ## Verified Metrics
 
-Measured in this repo on March 22, 2026:
+Measured in this repo on March 26, 2026:
 
-- TensorFlow CNN (Conv2D(8) + MaxPool + Dense): 96.54% MNIST test accuracy, 13,610 parameters
-- TensorFlow FC export model (784 -> 40 -> 20 -> 10): 95.91% MNIST test accuracy, 32,430 parameters
-- On-target validation in QEMU: 490/500 correct predictions across 5 benchmark batches (100 samples each), 98.00% accuracy
-- On-target estimated latency: 4.05 ms average per inference from SysTick ticks (8 MHz estimate)
-- On-target estimated batch latency: about 405 ms per 100-sample benchmark batch
+- TensorFlow CNN export model (Conv2D(8) + MaxPool + Dense): 96.44% MNIST test accuracy, 13,610 parameters
+- Exported 100-sample subset accuracy (host): 98.00%
+- On-target validation in QEMU: 196/200 correct predictions across 2 benchmark batches (100 samples each), 98.00% accuracy
+- On-target estimated latency: 9.38 ms average per inference from SysTick ticks (8 MHz estimate)
+- On-target estimated batch latency: about 938 ms per 100-sample benchmark batch
 
 ## Metric Snapshot
 
@@ -101,7 +101,7 @@ python tools/generate_metrics_snapshot.py
 
 If local build artifacts are unavailable, the generator falls back to committed baseline metrics in docs/assets/metrics_data.json.
 
-Note: a float32 784 -> 128 -> 64 -> 10 network is about 109K parameters and does not fit this target flash when stored as raw float32 weights.
+Note: this compact CNN now fits within target flash and runs correctly on the emulated LM3S6965 Cortex-M3 without an ML runtime.
 
 ## Firmware Telemetry Format
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train a 784->128->64->10 MNIST MLP and export C header + metrics."""
+"""Train a small MNIST CNN and export C header + metrics."""
 
 from __future__ import annotations
 
@@ -14,9 +14,16 @@ import tensorflow as tf
 
 INPUT_H = 28
 INPUT_W = 28
+INPUT_C = 1
 INPUT_SIZE = INPUT_H * INPUT_W
-H1 = 40
-H2 = 20
+CONV_K = 3
+CONV_OC = 8
+CONV_OUT_H = INPUT_H - CONV_K + 1
+CONV_OUT_W = INPUT_W - CONV_K + 1
+POOL = 2
+POOL_OUT_H = CONV_OUT_H // POOL
+POOL_OUT_W = CONV_OUT_W // POOL
+FLAT = POOL_OUT_H * POOL_OUT_W * CONV_OC
 OUT = 10
 DEFAULT_EXPORT_SAMPLES = 100
 
@@ -42,9 +49,10 @@ def format_u8_array(values: Iterable[int], values_per_line: int = 16) -> str:
 def build_model() -> tf.keras.Model:
     model = tf.keras.Sequential(
         [
-            tf.keras.layers.Input(shape=(INPUT_SIZE,)),
-            tf.keras.layers.Dense(H1, activation="relu"),
-            tf.keras.layers.Dense(H2, activation="relu"),
+            tf.keras.layers.Input(shape=(INPUT_H, INPUT_W, INPUT_C)),
+            tf.keras.layers.Conv2D(CONV_OC, (CONV_K, CONV_K), activation="relu", padding="valid"),
+            tf.keras.layers.MaxPooling2D((POOL, POOL)),
+            tf.keras.layers.Flatten(),
             tf.keras.layers.Dense(OUT),
         ]
     )
@@ -63,21 +71,19 @@ def select_eval_subset(y_true: np.ndarray, n_samples: int) -> np.ndarray:
 
 def export_header(
     out_path: Path,
-    w1: np.ndarray,
-    b1: np.ndarray,
-    w2: np.ndarray,
-    b2: np.ndarray,
-    w3: np.ndarray,
-    b3: np.ndarray,
+    conv_w: np.ndarray,
+    conv_b: np.ndarray,
+    fc_w: np.ndarray,
+    fc_b: np.ndarray,
     sample_images_u8: np.ndarray,
     sample_labels: np.ndarray,
 ) -> None:
-    w1_export = w1.reshape(-1)
-    b1_export = b1.reshape(-1)
-    w2_export = w2.reshape(-1)
-    b2_export = b2.reshape(-1)
-    w3_export = w3.reshape(-1)
-    b3_export = b3.reshape(-1)
+    # Keras conv kernel layout is [kh, kw, in_c, out_c].
+    # Conv2DLayerSingleIn expects [out_c, kh, kw] for in_c=1.
+    conv_w_export = np.transpose(conv_w[:, :, 0, :], (2, 0, 1)).reshape(-1)
+    conv_b_export = conv_b.reshape(-1)
+    fc_w_export = fc_w.reshape(-1)
+    fc_b_export = fc_b.reshape(-1)
     imgs_export = sample_images_u8.reshape(-1)
     labels_export = sample_labels.reshape(-1)
 
@@ -89,33 +95,27 @@ def export_header(
 #define MNIST_INPUT_H {INPUT_H}
 #define MNIST_INPUT_W {INPUT_W}
 #define MNIST_INPUT_SIZE {INPUT_SIZE}
-#define MNIST_H1 {H1}
-#define MNIST_H2 {H2}
+#define MNIST_CONV_K {CONV_K}
+#define MNIST_CONV_OC {CONV_OC}
+#define MNIST_POOL {POOL}
+#define MNIST_FLAT {FLAT}
 #define MNIST_OUT {OUT}
 #define MNIST_EVAL_SAMPLES {sample_images_u8.shape[0]}
 
-static const float g_w1[{w1_export.size}] = {{
-    {format_c_array(w1_export)}
+static const float g_conv_w[{conv_w_export.size}] = {{
+    {format_c_array(conv_w_export)}
 }};
 
-static const float g_b1[{b1_export.size}] = {{
-    {format_c_array(b1_export)}
+static const float g_conv_b[{conv_b_export.size}] = {{
+    {format_c_array(conv_b_export)}
 }};
 
-static const float g_w2[{w2_export.size}] = {{
-    {format_c_array(w2_export)}
+static const float g_fc_w[{fc_w_export.size}] = {{
+    {format_c_array(fc_w_export)}
 }};
 
-static const float g_b2[{b2_export.size}] = {{
-    {format_c_array(b2_export)}
-}};
-
-static const float g_w3[{w3_export.size}] = {{
-    {format_c_array(w3_export)}
-}};
-
-static const float g_b3[{b3_export.size}] = {{
-    {format_c_array(b3_export)}
+static const float g_fc_b[{fc_b_export.size}] = {{
+    {format_c_array(fc_b_export)}
 }};
 
 static const uint8_t g_eval_images_u8[{imgs_export.size}] = {{
@@ -132,7 +132,7 @@ static const uint8_t g_eval_labels[{labels_export.size}] = {{
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train and export MNIST FC network to C header")
+    parser = argparse.ArgumentParser(description="Train and export MNIST CNN to C header")
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs")
     parser.add_argument("--batch-size", type=int, default=128, help="Batch size")
     parser.add_argument(
@@ -150,7 +150,7 @@ def main() -> None:
     parser.add_argument(
         "--metrics-output",
         type=Path,
-        default=Path("build/training_metrics_fc.json"),
+        default=Path("build/training_metrics_cnn_embedded.json"),
         help="Output JSON file for training metrics",
     )
     args = parser.parse_args()
@@ -159,8 +159,8 @@ def main() -> None:
     np.random.seed(42)
 
     (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
-    x_train_f = (x_train.astype(np.float32) / 255.0).reshape((-1, INPUT_SIZE))
-    x_test_f = (x_test.astype(np.float32) / 255.0).reshape((-1, INPUT_SIZE))
+    x_train_f = (x_train.astype(np.float32) / 255.0)[..., np.newaxis]
+    x_test_f = (x_test.astype(np.float32) / 255.0)[..., np.newaxis]
 
     model = build_model()
     model.fit(
@@ -177,13 +177,11 @@ def main() -> None:
     print(f"Test accuracy: {test_acc * 100:.2f}%")
     print(f"Parameter count: {model.count_params()}")
 
-    l1 = model.layers[0]
-    l2 = model.layers[1]
-    l3 = model.layers[2]
+    conv_layer = model.layers[0]
+    dense_layer = model.layers[3]
 
-    w1, b1 = l1.get_weights()
-    w2, b2 = l2.get_weights()
-    w3, b3 = l3.get_weights()
+    conv_w, conv_b = conv_layer.get_weights()
+    fc_w, fc_b = dense_layer.get_weights()
 
     logits = model.predict(x_test_f, verbose=0)
     sample_indices = select_eval_subset(y_test, args.export_samples)
@@ -195,18 +193,16 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     export_header(
         args.output,
-        w1=w1,
-        b1=b1,
-        w2=w2,
-        b2=b2,
-        w3=w3,
-        b3=b3,
+        conv_w=conv_w,
+        conv_b=conv_b,
+        fc_w=fc_w,
+        fc_b=fc_b,
         sample_images_u8=sample_images_u8,
         sample_labels=sample_labels,
     )
 
     metrics = {
-        "model": "mnist_fc_784_128_64_10",
+        "model": "mnist_cnn_28x28x1_conv8_pool2_fc10",
         "test_accuracy": float(test_acc),
         "test_loss": float(test_loss),
         "parameter_count": int(model.count_params()),

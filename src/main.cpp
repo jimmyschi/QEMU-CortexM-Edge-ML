@@ -75,7 +75,7 @@ extern "C" int main(void) {
 
     systick_init();
 
-    ml::MnistFcModel model;
+    ml::MnistCnnModel model;
     float input_buf[MNIST_INPUT_SIZE];
     uint32_t hb = 0;
 

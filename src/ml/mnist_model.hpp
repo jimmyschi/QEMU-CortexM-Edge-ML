@@ -107,6 +107,25 @@ public:
             }
         }
     }
+
+    void forward_nhwc_flat(const T *input, T *output) const {
+        for (size_t oy = 0; oy < OUT_H; ++oy) {
+            for (size_t ox = 0; ox < OUT_W; ++ox) {
+                for (size_t c = 0; c < C; ++c) {
+                    T max_v = input[c * H * W + (oy * P) * W + (ox * P)];
+                    for (size_t py = 0; py < P; ++py) {
+                        for (size_t px = 0; px < P; ++px) {
+                            const size_t idx = c * H * W + (oy * P + py) * W + (ox * P + px);
+                            if (input[idx] > max_v) {
+                                max_v = input[idx];
+                            }
+                        }
+                    }
+                    output[(oy * OUT_W + ox) * C + c] = max_v;
+                }
+            }
+        }
+    }
 };
 
 template <size_t N, typename T = float>
@@ -122,25 +141,33 @@ size_t argmax(const T *data) {
     return best_idx;
 }
 
-class MnistFcModel {
+class MnistCnnModel {
 public:
-    static constexpr size_t kInput = 784;
-    static constexpr size_t kH1 = 40;
-    static constexpr size_t kH2 = 20;
+    static constexpr size_t kInputH = 28;
+    static constexpr size_t kInputW = 28;
+    static constexpr size_t kInputC = 1;
+    static constexpr size_t kConvK = 3;
+    static constexpr size_t kConvOc = 8;
+    static constexpr size_t kConvOutH = kInputH - kConvK + 1;
+    static constexpr size_t kConvOutW = kInputW - kConvK + 1;
+    static constexpr size_t kPool = 2;
+    static constexpr size_t kPoolOutH = kConvOutH / kPool;
+    static constexpr size_t kPoolOutW = kConvOutW / kPool;
+    static constexpr size_t kFlat = kPoolOutH * kPoolOutW * kConvOc;
     static constexpr size_t kOut = 10;
 
-    MnistFcModel();
+    MnistCnnModel();
 
     int predict(const float *image);
     float last_logit(size_t i) const { return out_[i]; }
 
 private:
-    DenseLayer<kInput, kH1, float> d1_;
-    DenseLayer<kH1, kH2, float> d2_;
-    DenseLayer<kH2, kOut, float> d3_;
+    Conv2DLayerSingleIn<kInputH, kInputW, kConvK, kConvK, kConvOc, float> conv_;
+    MaxPool2D<kConvOutH, kConvOutW, kConvOc, kPool, float> pool_;
+    DenseLayer<kFlat, kOut, float> fc_;
 
-    float h1_[kH1];
-    float h2_[kH2];
+    float conv_out_[kConvOutH * kConvOutW * kConvOc];
+    float pool_out_[kFlat];
     float out_[kOut];
 };
 

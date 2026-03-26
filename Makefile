@@ -27,7 +27,7 @@ $(TARGET): $(SRCS) $(WEIGHTS)
 	@arm-none-eabi-objdump -f $@ | grep -E "architecture|start address"
 
 export-weights:
-	$(PYTHON) tools/train_export_mnist.py --epochs 6 --export-samples 100 --output src/ml/mnist_weights_generated.h --metrics-output build/training_metrics_fc.json
+	$(PYTHON) tools/train_export_mnist.py --epochs 3 --export-samples 100 --output src/ml/mnist_weights_generated.h --metrics-output build/training_metrics_cnn_embedded.json
 
 train-cnn-metrics:
 	$(PYTHON) tools/train_cnn_mnist_metrics.py --epochs 3 --metrics-output build/training_metrics_cnn.json
