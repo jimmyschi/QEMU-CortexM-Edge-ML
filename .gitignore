@@ -1,9 +1,0 @@
-.DS_Store
-.vscode/
-build/
-__pycache__/
-*.pyc
-
-requirements.txt
-docs/assests
-generate_metrics_snapshots.py
